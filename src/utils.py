@@ -8,20 +8,48 @@ import scipy.stats
 from sklearn.decomposition import PCA
 import statsmodels.formula.api as smf
 
-def standardize(df, cols=None):
-    """Return DataFrame with standardized columns.
 
-    Specify a subset of columns with the `cols` input.  If omitted, all columns
+def readmat_struct(filenm, struct_nm, ravel=True, dataframe=True, indexnm=None):
+    data = sio.loadmat(filenm)
+    nms = data[struct_nm].dtype.names
+    output = {}
+    for nm in nms:
+        vals = data[struct_nm][nm][0, 0]
+        if ravel:
+            vals = vals.ravel()
+        output[nm] = vals
+    if dataframe:
+        if indexnm is None:
+            index = range(len(output[nms[0]]))
+        else:
+            index = output[indexnm]
+            output.pop(indexnm)
+        output = pd.DataFrame(output, index=index)
+    return output
+
+
+def standardize(data, cols=None):
+    """Return standardized pd.Series or pd.DataFrame with standardized columns.
+
+    Input data is either a pd.Series or pd.DataFrame.  If DataFrame, a subset
+    of columns can be specified with the `cols` input.  If omitted, all columns
     are standardized.
 
     Columns are standardized as: y_out = (y - y.mean()) / y.std()
     """
-    if cols is None:
-        cols = df.columns
-    df_out = df.copy()
-    for nm in cols:
-        df_out[nm] = (df[nm] - df[nm].mean()) / df[nm].std()
-    return df_out
+    def standardize_one(series):
+        return (series - series.mean()) / series.std()
+
+    if isinstance(data, pd.Series):
+        data_out =  standardize_one(data)
+    elif isinstance(data, pd.DataFrame):
+        data_out = data.copy()
+        if cols is None:
+            cols = data.columns
+        data_out[cols] = data_out[cols].apply(standardize_one)
+    else:
+        raise ValueError('Input data must be pd.Series or pd.DataFrame')
+    return data_out
 
 
 def mlr(formula='Y ~ X', data=None, verbose=True):
@@ -121,7 +149,7 @@ def princomp(y, kmax=None, eigenrows=True, real=True):
     Parameters
     ----------
     y : np.array (2-dimensional)
-        Input data matrix.  PCA is performed along the rows of y.
+        Input data matrix.  Rows are observations and columns are variables.
     kmax : int, optional
         Truncates at first kmax modes (or returns all modes if kmax is None).
     eigenrows : bool, optional
@@ -158,7 +186,7 @@ def princomp(y, kmax=None, eigenrows=True, real=True):
     idx = np.argsort(eigval)
     idx = idx[::-1]
     eigval = eigval[idx]
-    eigvec = eigvec[:, idx]    
+    eigvec = eigvec[:, idx]
 
     # Transpose eigvec so each row is an eigenvector
     eigvec = eigvec.T
@@ -170,6 +198,7 @@ def princomp(y, kmax=None, eigenrows=True, real=True):
     if kmax is not None:
         eigval = eigval[:kmax]
         eigvec = eigvec[:kmax]
+        variance_all = variance
         variance = variance[:kmax]
 
     # Compute principal component scores
@@ -183,7 +212,8 @@ def princomp(y, kmax=None, eigenrows=True, real=True):
         eigvec, a = eigvec.T, a.T
 
     pca = {'eigval' : eigval, 'eigvec' : eigvec, 'varfrac' : variance,
-           'scores' : a, 'y_rec' : y_rec, 'y_orig' : y}
+           'varfrac_all' : variance_all, 'scores' : a, 'y_rec' : y_rec,
+           'y_orig' : y}
 
     return pca
 
